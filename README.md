@@ -21,6 +21,7 @@ Further information: [Datasheet SCD4x](https://sensirion.com/media/documents/48C
 - Async support via the `embedded-hal-async` feature
 - Optional `thiserror` integration for `std` environments
 - Optional `defmt` support for embedded logging
+- Optional fixed-point support via the `fixed` feature
 - Blocking and non-blocking measurement modes
 
 ## Usage
@@ -36,6 +37,9 @@ scd4x = "0.6"
 
 # For async support:
 # scd4x = { version = "0.6", features = ["embedded-hal-async"] }
+
+# For fixed-point support:
+# scd4x = { version = "0.6", features = ["fixed"] }
 ```
 
 ### Full Examples

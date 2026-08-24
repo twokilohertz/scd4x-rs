@@ -14,6 +14,11 @@ mod async_impl;
 #[cfg(feature = "embedded-hal-async")]
 pub use async_impl::Scd4xAsync;
 
+#[cfg(feature = "fixed")]
+use crate::types::SensorDataFixed;
+#[cfg(feature = "fixed")]
+use fixed::types::U16F16;
+
 /// SCD4X sensor instance. Use related methods to take measurements.
 #[derive(Debug, Default)]
 pub struct Scd4x<I2C, D> {
@@ -69,6 +74,15 @@ where
         Ok(SensorData::from_raw(raw))
     }
 
+    /// Read converted sensor data as fixed-point numbers.
+    ///
+    /// Only available with the `fixed` feature.
+    #[cfg(feature = "fixed")]
+    pub fn measurement_fixed(&mut self) -> Result<SensorDataFixed, Error<E>> {
+        let raw = self.sensor_output()?;
+        Ok(SensorDataFixed::from(raw))
+    }
+
     /// Get sensor temperature offset
     pub fn temperature_offset(&mut self) -> Result<f32, Error<E>> {
         let mut buf = [0; 3];
@@ -80,6 +94,27 @@ where
     /// Set sensor temperature offset
     pub fn set_temperature_offset(&mut self, offset: f32) -> Result<(), Error<E>> {
         let t_offset = temp_offset_to_u16(offset);
+        self.write_command_with_data(Command::SetTemperatureOffset, t_offset)?;
+        Ok(())
+    }
+
+    /// Get sensor temperature offset as a fixed-point number.
+    ///
+    /// Only available with the `fixed` feature.
+    #[cfg(feature = "fixed")]
+    pub fn temperature_offset_fixed(&mut self) -> Result<U16F16, Error<E>> {
+        let mut buf = [0; 3];
+        self.delayed_read_cmd(Command::GetTemperatureOffset, &mut buf)?;
+
+        Ok(temp_offset_from_bytes_fixed(buf))
+    }
+
+    /// Set sensor temperature offset from a fixed-point number.
+    ///
+    /// Only available with the `fixed` feature.
+    #[cfg(feature = "fixed")]
+    pub fn set_temperature_offset_fixed(&mut self, offset: U16F16) -> Result<(), Error<E>> {
+        let t_offset = temp_offset_to_u16_fixed(offset);
         self.write_command_with_data(Command::SetTemperatureOffset, t_offset)?;
         Ok(())
     }
@@ -329,8 +364,19 @@ fn temp_offset_from_bytes(buf: [u8; 3]) -> f32 {
     (raw_offset as f32 * 175_f32) / (u16::MAX as f32)
 }
 
+#[cfg(feature = "fixed")]
+fn temp_offset_from_bytes_fixed(buf: [u8; 3]) -> U16F16 {
+    let raw_offset = u16::from_be_bytes([buf[0], buf[1]]);
+    U16F16::from_bits(raw_offset as u32 * 175)
+}
+
 fn temp_offset_to_u16(offset: f32) -> u16 {
     (((offset * (u16::MAX as f32)) / 175_f32) as i32) as u16
+}
+
+#[cfg(feature = "fixed")]
+fn temp_offset_to_u16_fixed(offset: U16F16) -> u16 {
+    ((offset.to_bits() + (175 / 2)) / 175) as u16
 }
 
 fn check_frc_correction<E>(frc_correction: u16) -> Result<i16, Error<E>> {
@@ -347,6 +393,8 @@ mod tests {
     use self::hal::delay::NoopDelay as DelayMock;
     use self::hal::i2c::{Mock as I2cMock, Transaction};
     use super::*;
+    #[cfg(feature = "fixed")]
+    use fixed::types::{I16F16, U16F16};
 
     /// Build a 3-byte response word: [msb, lsb, crc]
     fn word(msb: u8, lsb: u8) -> [u8; 3] {
@@ -401,6 +449,32 @@ mod tests {
         mock.done();
     }
 
+    /// Test the fixed-point measurement function
+    #[test]
+    #[cfg(feature = "fixed")]
+    fn test_measurement_fixed() {
+        // Arrange
+        let (cmd, _, _) = Command::ReadMeasurement.as_tuple();
+        let expectations = [
+            Transaction::write(SCD4X_I2C_ADDRESS, cmd.to_be_bytes().to_vec()),
+            Transaction::read(
+                SCD4X_I2C_ADDRESS,
+                vec![0x03, 0xE8, 0xD4, 0x62, 0x03, 0x5E, 0x80, 0x00, 0xA2],
+            ),
+        ];
+        let mock = I2cMock::new(&expectations);
+        let mut sensor = Scd4x::new(mock, DelayMock);
+        // Act
+        let data = sensor.measurement_fixed().unwrap();
+        // Assert
+        assert_eq!(data.co2, 1000_u16);
+        assert!((data.temperature - I16F16::from_num(22.00122)).abs() < 0.01);
+        assert!(data.humidity.abs_diff(U16F16::from_num(50.000763)) < 0.01);
+
+        let mut mock = sensor.destroy();
+        mock.done();
+    }
+
     /// Test temperature offset round-trip conversion
     #[test]
     fn test_temp_offset_round_trip() {
@@ -415,6 +489,33 @@ mod tests {
             let decoded = temp_offset_from_bytes(buf);
             assert!(
                 (original - decoded).abs() < 0.01,
+                "Round-trip failed for {original}: got {decoded}"
+            );
+        }
+    }
+
+    /// Test temperature offset round-trip conversion
+    #[test]
+    #[cfg(feature = "fixed")]
+    fn test_temp_offset_round_trip_fixed() {
+        let offsets = [
+            U16F16::from_num(0.0),
+            U16F16::from_num(1.0),
+            U16F16::from_num(2.0),
+            U16F16::from_num(5.0),
+            U16F16::from_num(10.5),
+            U16F16::from_num(0.1),
+        ];
+        for original in offsets {
+            let encoded = temp_offset_to_u16_fixed(original);
+            let buf = [
+                (encoded >> 8) as u8,
+                encoded as u8,
+                0, // CRC placeholder (not checked here)
+            ];
+            let decoded = temp_offset_from_bytes_fixed(buf);
+            assert!(
+                original.abs_diff(decoded) < 0.01,
                 "Round-trip failed for {original}: got {decoded}"
             );
         }

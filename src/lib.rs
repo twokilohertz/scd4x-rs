@@ -18,6 +18,19 @@
 //! [dependencies]
 //! scd4x = { version = "0.6", features = ["embedded-hal-async"] }
 //! ```
+//!
+//! ## Fixed-point Support
+//!
+//! This crate has optional support for the [`fixed`] crate. The
+//! [`types::SensorDataFixed`] type provides measurements as fixed-point
+//! numbers, via `measurement_fixed()` and the fixed temperature offset
+//! methods, without changing the existing `f32` API. To use it, enable
+//! the `fixed` feature flag in your `Cargo.toml`:
+//!
+//! ```toml
+//! [dependencies]
+//! scd4x = { version = "0.6", features = ["fixed"] }
+//! ```
 
 #![deny(unsafe_code)]
 #![cfg_attr(not(any(test, feature = "std")), no_std)]

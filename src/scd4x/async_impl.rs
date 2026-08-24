@@ -3,6 +3,9 @@ use async_hal::{delay::DelayNs, i2c::I2c};
 use embedded_hal_async as async_hal;
 use sensirion_i2c::i2c_async;
 
+#[cfg(feature = "fixed")]
+use fixed::types::U16F16;
+
 /// Asynchronous SCD4X sensor instance, for use with [`embedded_hal_async`].
 ///
 /// Use related methods to take measurements.
@@ -62,6 +65,15 @@ where
         Ok(SensorData::from_raw(raw))
     }
 
+    /// Read converted sensor data as fixed-point numbers.
+    ///
+    /// Only available with the `fixed` feature.
+    #[cfg(feature = "fixed")]
+    pub async fn measurement_fixed(&mut self) -> Result<SensorDataFixed, Error<E>> {
+        let raw = self.sensor_output().await?;
+        Ok(SensorDataFixed::from(raw))
+    }
+
     /// Get sensor temperature offset
     pub async fn temperature_offset(&mut self) -> Result<f32, Error<E>> {
         let mut buf = [0; 3];
@@ -74,6 +86,29 @@ where
     /// Set sensor temperature offset
     pub async fn set_temperature_offset(&mut self, offset: f32) -> Result<(), Error<E>> {
         let t_offset = temp_offset_to_u16(offset);
+        self.write_command_with_data(Command::SetTemperatureOffset, t_offset)
+            .await?;
+        Ok(())
+    }
+
+    /// Get sensor temperature offset as a fixed-point number.
+    ///
+    /// Only available with the `fixed` feature.
+    #[cfg(feature = "fixed")]
+    pub async fn temperature_offset_fixed(&mut self) -> Result<U16F16, Error<E>> {
+        let mut buf = [0; 3];
+        self.delayed_read_cmd(Command::GetTemperatureOffset, &mut buf)
+            .await?;
+
+        Ok(temp_offset_from_bytes_fixed(buf))
+    }
+
+    /// Set sensor temperature offset from a fixed-point number.
+    ///
+    /// Only available with the `fixed` feature.
+    #[cfg(feature = "fixed")]
+    pub async fn set_temperature_offset_fixed(&mut self, offset: U16F16) -> Result<(), Error<E>> {
+        let t_offset = temp_offset_to_u16_fixed(offset);
         self.write_command_with_data(Command::SetTemperatureOffset, t_offset)
             .await?;
         Ok(())
