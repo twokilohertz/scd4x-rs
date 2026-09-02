@@ -188,6 +188,16 @@ where
         Ok(())
     }
 
+    /// Gets the SCD4x sensor variant
+    pub async fn sensor_variant(&mut self) -> Result<SensorVariant, Error<E>> {
+        let mut buf = [0; 3];
+        self.delayed_read_cmd(Command::GetSensorVariant, &mut buf)
+            .await?;
+
+        let raw_variant = u16::from_be_bytes([buf[0], buf[1]]);
+        Ok(SensorVariant::from_raw(raw_variant))
+    }
+
     /// On-demand measurement of CO₂ concentration, relative humidity and temperature.
     /// The sensor output is read with the measurement method.
     /// Takes around 5 seconds to complete
